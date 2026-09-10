@@ -1,0 +1,9 @@
+services:
+  pr-review-agent:
+    build: .
+    container_name: pr-review-agent
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

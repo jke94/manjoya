@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import os
+import asyncio
 from typing import Any
 
 import httpx
@@ -106,12 +107,13 @@ async def github_webhook(request: Request) -> dict[str, Any]:
     pr_number = pr["number"]
 
     try:
-        report = review_branch(
+        report = await asyncio.to_thread(
+            review_branch,
             llm_provider=create_ollama_provider(),
             owner=owner,
             repo=repo,
             base_branch=pr["base"]["ref"],
-            feature_branch=pr["head"]["ref"],
+            feature_branch=pr["head"]["sha"],
             pr_number=pr_number,
         )
         await create_github_check(owner, repo, pr_number, "success", report)

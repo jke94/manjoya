@@ -9,7 +9,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.code_review_config import SYSTEM_PROMPT, TOOLS
 
@@ -21,7 +21,21 @@ OPENROUTER_API_KEY = os.getenv("OPEN_ROUTER_API_KEY")
 MODEL = os.getenv("MODEL")
 MAX_ITERATIONS = 20
 
-app = FastAPI(title="GitHub PR Code Review Agent")
+app = FastAPI(
+    title="GitHub PR Code Review Agent",
+    description="Direct code review API for GitHub pull requests using OpenRouter.",
+    version="1.0.0",
+    openapi_tags=[
+        {
+            "name": "reviews",
+            "description": "Pull request code review operations.",
+        },
+        {
+            "name": "health",
+            "description": "Service availability checks.",
+        },
+    ],
+)
 
 
 def github_headers() -> dict[str, str]:
@@ -210,18 +224,70 @@ def review_branch(
 
 
 class ReviewRequest(BaseModel):
-    owner: str
-    repo: str
-    pr_number: int
+    owner: str = Field(
+        description="GitHub repository owner.",
+        examples=["jke94"],
+    )
+    repo: str = Field(
+        description="GitHub repository name.",
+        examples=["weather-station"],
+    )
+    pr_number: int = Field(
+        gt=0,
+        description="Pull request number.",
+        examples=[30],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "owner": "jke94",
+                    "repo": "weather-station",
+                    "pr_number": 30,
+                }
+            ]
+        }
+    }
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+class HealthResponse(BaseModel):
+    status: str = Field(examples=["ok"])
 
 
-@app.post("/review")
-def review_pull_request(request: ReviewRequest) -> dict[str, Any]:
+class ReviewResponse(BaseModel):
+    status: str = Field(examples=["ok"])
+    pr: int = Field(description="Reviewed pull request number.", examples=[30])
+    review: str = Field(description="Markdown code review report.")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(description="Human-readable error detail.")
+
+
+@app.get(
+    "/health",
+    tags=["health"],
+    summary="Check service health",
+    response_model=HealthResponse,
+)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@app.post(
+    "/review",
+    tags=["reviews"],
+    summary="Review a GitHub pull request",
+    response_model=ReviewResponse,
+    responses={
+        500: {
+            "model": ErrorResponse,
+            "description": "GitHub, OpenRouter, or configuration error.",
+        }
+    },
+)
+def review_pull_request(request: ReviewRequest) -> ReviewResponse:
     if not GITHUB_TOKEN:
         raise HTTPException(status_code=500, detail="Missing GITHUB_TOKEN")
     if not OPENROUTER_API_KEY:
@@ -240,10 +306,10 @@ def review_pull_request(request: ReviewRequest) -> dict[str, Any]:
             head_branch=pr["head"]["sha"],
             pr_number=request.pr_number,
         )
-        return {
-            "status": "ok",
-            "pr": request.pr_number,
-            "review": report,
-        }
+        return ReviewResponse(
+            status="ok",
+            pr=request.pr_number,
+            review=report,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

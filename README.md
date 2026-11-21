@@ -1,18 +1,17 @@
 # GitHub PR Review Agent
 
-FastAPI service that receives GitHub pull request webhooks, runs the PR review agent, and publishes the result as a GitHub Check Run.
+FastAPI service that accepts direct code review requests for GitHub pull requests and runs the PR review agent.
 
 ## Project structure
 
 ```text
-app/
-  main.py
-  github_client.py
 src/
-  programmatic_agent_pr_reviewer.py
+  agent_reviewer_server.py
+  code_review_config.py
 Dockerfile
 docker-compose.yml
 requirements.txt
+majoya_test.py
 .env.example
 ```
 
@@ -24,25 +23,24 @@ Create the runtime environment file from the example:
 Copy-Item .env.example .env
 ```
 
-Update `.env` with a GitHub token that has `checks:write` and `contents:read` permissions, plus the Ollama connection settings:
+Update `.env` with a GitHub token that can read repository contents and pull requests, plus an OpenRouter API key and model:
 
 ```env
-GITHUB_WEBHOOK_SECRET=replace_with_a_strong_secret
 GITHUB_TOKEN=github_pat_or_token
-OLLAMA_HOST=https://your-ollama-endpoint.example
-OLLAMA_API_KEY=your_ollama_api_key
-MODEL=qwen2.5:7b
+OPEN_ROUTER_API_KEY=your_openrouter_api_key
+MODEL=openai/gpt-4o-mini
 ```
+
+`MODEL` must be a model identifier supported by OpenRouter, such as `openai/gpt-4o-mini`.
 
 `.env` is ignored by Git. Do not commit tokens or API keys.
 
 ## Run locally
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn src.agent_reviewer_server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 The service is available at `http://localhost:8000`.
@@ -50,7 +48,7 @@ The service is available at `http://localhost:8000`.
 Main endpoints:
 
 - `GET /health`
-- `POST /github/webhook`
+- `POST /review`
 
 ## Build and run with Docker Compose
 
@@ -101,20 +99,24 @@ The expected response is:
 Verify that the application and agent module can be imported:
 
 ```powershell
-python -c "from app.main import app; from src.programmatic_agent_pr_reviewer import review_branch; print(app.title)"
+.venv/bin/python -c "from src.agent_reviewer_server import app; print(app.title)"
 ```
 
-### GitHub webhook
+### Code review request
 
-Configure a webhook in the target repository:
+Start the service and send a review request with the test script:
 
-1. Open **Settings** > **Webhooks** > **Add webhook**.
-2. Set the payload URL to `https://your-domain.example/github/webhook`.
-3. Set **Content type** to `application/json`.
-4. Set the secret to the value of `GITHUB_WEBHOOK_SECRET`.
-5. Select **Pull requests** events.
+```powershell
+.venv/bin/python majoya_test.py jke94 weather-station 30
+```
 
-The service reviews pull requests when the action is `opened`, `reopened`, or `synchronize`. Use GitHub's **Recent Deliveries** page to send a test delivery and inspect the response. A successful review creates a `PR Review Agent` Check Run on the pull request.
+The script sends this JSON payload:
+
+```json
+{"owner":"jke94","repo":"weather-station","pr_number":30}
+```
+
+The service obtains the PR base and head from GitHub, runs the review, and returns the report in the `review` field.
 
 ## API documentation
 

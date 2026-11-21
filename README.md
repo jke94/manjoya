@@ -1,80 +1,78 @@
 # GitHub PR Review Agent
 
-FastAPI service that receives GitHub pull request webhooks, runs the PR review agent, and publishes the result as a GitHub Check Run.
+FastAPI service that performs pull request code reviews using GitHub as the repository source and OpenRouter as the LLM provider.
 
 ## Project structure
 
 ```text
-app/
-  main.py
-  github_client.py
 src/
-  programmatic_agent_pr_reviewer.py
+  agent_reviewer_server.py
+  code_review_config.py
 Dockerfile
 docker-compose.yml
 requirements.txt
+majoya_test.py
 .env.example
 ```
 
-## Configuration
+## Environment configuration
 
-Create the runtime environment file from the example:
+Create `.env` from the example:
 
-```powershell
-Copy-Item .env.example .env
+```bash
+cp .env.example .env
 ```
 
-Update `.env` with a GitHub token that has `checks:write` and `contents:read` permissions, plus the Ollama connection settings:
+Configure:
 
 ```env
-GITHUB_WEBHOOK_SECRET=replace_with_a_strong_secret
 GITHUB_TOKEN=github_pat_or_token
-OLLAMA_HOST=https://your-ollama-endpoint.example
-OLLAMA_API_KEY=your_ollama_api_key
-MODEL=qwen2.5:7b
+OPEN_ROUTER_API_KEY=your_openrouter_api_key
+MODEL=openai/gpt-4o-mini
 ```
+
+- `GITHUB_TOKEN`: classic or fine-grained token with read access to repository contents and pull requests.
+- `OPEN_ROUTER_API_KEY`: OpenRouter API key.
+- `MODEL`: OpenRouter model identifier, for example `openai/gpt-4o-mini`.
 
 `.env` is ignored by Git. Do not commit tokens or API keys.
 
 ## Run locally
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn src.agent_reviewer_server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 The service is available at `http://localhost:8000`.
 
-Main endpoints:
+Endpoints:
 
-- `GET /health`
-- `POST /github/webhook`
+- `GET /health`: service health.
+- `POST /review`: code review request.
+- `GET /docs`: interactive Swagger documentation.
+- `GET /redoc`: ReDoc documentation.
+- `GET /openapi.json`: OpenAPI 3 specification.
 
 ## Build and run with Docker Compose
 
-Compose reads the variables from `.env`, builds the image, and publishes port `8000`:
+Compose reads `.env`, builds the image, publishes port `8000`, and enables a container health check:
 
-```powershell
+```bash
 docker compose up --build -d
 ```
 
-View logs:
+View logs or stop the service:
 
-```powershell
+```bash
 docker compose logs -f pr-review-agent
-```
-
-Stop and remove the container:
-
-```powershell
 docker compose down
 ```
 
 ## Build and run with Docker directly
 
-```powershell
+```bash
 docker build -t github-pr-review-agent .
 docker run --name github-pr-review-agent --env-file .env -p 8000:8000 github-pr-review-agent
 ```
@@ -85,9 +83,8 @@ docker run --name github-pr-review-agent --env-file .env -p 8000:8000 github-pr-
 
 With the local server or container running:
 
-```powershell
-Invoke-RestMethod http://localhost:8000/health
-curl.exe http://localhost:8000/health
+```bash
+curl http://localhost:8000/health
 ```
 
 The expected response is:
@@ -98,27 +95,38 @@ The expected response is:
 
 ### Python smoke check
 
-Verify that the application and agent module can be imported:
+Verify that the server module and FastAPI application can be imported:
 
-```powershell
-python -c "from app.main import app; from src.programmatic_agent_pr_reviewer import review_branch; print(app.title)"
+```bash
+.venv/bin/python -c "from src.agent_reviewer_server import app; print(app.title)"
 ```
 
-### GitHub webhook
+### Code review request
 
-Configure a webhook in the target repository:
+Start the service and send a review request with the test script:
 
-1. Open **Settings** > **Webhooks** > **Add webhook**.
-2. Set the payload URL to `https://your-domain.example/github/webhook`.
-3. Set **Content type** to `application/json`.
-4. Set the secret to the value of `GITHUB_WEBHOOK_SECRET`.
-5. Select **Pull requests** events.
+```bash
+.venv/bin/python majoya_test.py jke94 weather-station 30
+```
 
-The service reviews pull requests when the action is `opened`, `reopened`, or `synchronize`. Use GitHub's **Recent Deliveries** page to send a test delivery and inspect the response. A successful review creates a `PR Review Agent` Check Run on the pull request.
+The script sends this JSON payload:
 
-## API documentation
+```json
+{
+  "owner": "jke94",
+  "repo": "weather-station",
+  "pr_number": 30
+}
+```
 
-FastAPI exposes interactive documentation at:
+The service obtains the pull request base and head references from GitHub, runs the review through OpenRouter, and returns the Markdown report in `review`.
 
-- `http://localhost:8000/docs`
-- `http://localhost:8000/redoc`
+Example response:
+
+```json
+{
+  "status": "ok",
+  "pr": 30,
+  "review": "# Code review report"
+}
+```
